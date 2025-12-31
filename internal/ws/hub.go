@@ -1,36 +1,57 @@
 package ws
 
 import (
-	"judgement/internal/fight"
+	"encoding/json"
 	"log"
+
+	"tkd-judge/internal/fight"
 )
 
 type Hub struct {
-	fight  *fight.Fight
+	fight *fight.Fight
+
 	events chan Event
+
+	clients    map[*Client]struct{}
+	register   chan *Client
+	unregister chan *Client
 }
 
-// NewHub создаёт Hub с новым боем
 func NewHub() *Hub {
 	return &Hub{
-		fight:  fight.NewFight(),
-		events: make(chan Event, 16),
+		fight:      fight.NewFight(),
+		events:     make(chan Event, 16),
+		clients:    make(map[*Client]struct{}),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
 	}
 }
 
-// Run запускает event-loop (блокирующий)
 func (h *Hub) Run() {
-	for event := range h.events {
-		h.handleEvent(event)
+	for {
+		select {
+		case event := <-h.events:
+			h.handleEvent(event)
+
+		case client := <-h.register:
+			h.clients[client] = struct{}{}
+
+			// 🔑 отправляем текущее состояние сразу при подключении
+			client.send(map[string]string{
+				"type":  "state",
+				"state": h.fight.State().String(),
+			})
+
+		case client := <-h.unregister:
+			delete(h.clients, client)
+		}
 	}
 }
 
-// Publish — единственная точка входа событий в Hub
 func (h *Hub) Publish(event Event) {
 	h.events <- event
 }
 
-// handleEvent — обработка события
 func (h *Hub) handleEvent(event Event) {
 	switch event.Type {
 	case EventFightControl:
@@ -40,10 +61,11 @@ func (h *Hub) handleEvent(event Event) {
 	}
 }
 
-func (h *Hub) handleFightControl(data any) {
-	evt, ok := data.(FightControlEvent)
-	if !ok {
-		log.Printf("invalid fight control payload")
+func (h *Hub) handleFightControl(data json.RawMessage) {
+	var evt FightControlEvent
+
+	if err := json.Unmarshal(data, &evt); err != nil {
+		log.Printf("invalid fight control payload: %v", err)
 		return
 	}
 
@@ -69,4 +91,16 @@ func (h *Hub) handleFightControl(data any) {
 	}
 
 	log.Printf("fight state changed to %s", h.fight.State())
+	h.broadcastState()
+}
+
+func (h *Hub) broadcastState() {
+	msg := map[string]string{
+		"type":  "state",
+		"state": h.fight.State().String(),
+	}
+
+	for client := range h.clients {
+		client.send(msg)
+	}
 }

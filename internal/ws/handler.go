@@ -10,7 +10,7 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // для локальной сети MVP
+		return true
 	},
 }
 
@@ -25,10 +25,15 @@ func NewWSHandler(hub *Hub) *WSHandler {
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
+
+	client := NewClient(conn)
+	h.hub.register <- client
+	defer func() {
+		h.hub.unregister <- client
+	}()
 
 	for {
 		_, data, err := conn.ReadMessage()

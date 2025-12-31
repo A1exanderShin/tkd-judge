@@ -1,5 +1,7 @@
 package ws
 
+import "encoding/json"
+
 type EventType string
 
 const (
@@ -15,13 +17,11 @@ const (
 	ActionStop   FightAction = "stop"
 )
 
-// Универсальное событие, которое попадает в hub
 type Event struct {
-	Type EventType
-	Data any
+	Type EventType       `json:"Type"`
+	Data json.RawMessage `json:"Data"`
 }
 
-// Payload управления боем
 type FightControlEvent struct {
-	Action FightAction
+	Action FightAction `json:"Action"`
 }
