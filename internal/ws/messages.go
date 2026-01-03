@@ -32,3 +32,11 @@ type Event struct {
 type FightControlEvent struct {
 	Action FightAction `json:"Action"`
 }
+
+const (
+	EventWarning EventType = "warning"
+)
+
+type WarningPayload struct {
+	Fighter string `json:"Fighter"` // "red" | "blue"
+}

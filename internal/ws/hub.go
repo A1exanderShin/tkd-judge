@@ -15,8 +15,10 @@ type Hub struct {
 	timer *fight.Timer
 
 	scoreboard *fight.Scoreboard
-	judges     map[int]*judges.Judge
-	eventLog   []events.ScoreEvent
+	warnings   *fight.WarningCounter
+
+	judges   map[int]*judges.Judge
+	eventLog []any
 
 	events chan Event
 
@@ -31,14 +33,15 @@ func NewHub() *Hub {
 		j[i] = judges.NewJudge(i, 300*time.Millisecond)
 	}
 
-	timer := fight.NewTimer(20 * time.Second)
+	timer := fight.NewTimer(120 * time.Second)
 
 	h := &Hub{
 		fight:      fight.NewFight(),
 		timer:      timer,
 		scoreboard: fight.NewScoreboard(),
+		warnings:   fight.NewWarningCounter(),
 		judges:     j,
-		eventLog:   make([]events.ScoreEvent, 0),
+		eventLog:   make([]any, 0),
 		events:     make(chan Event, 16),
 		clients:    make(map[*Client]struct{}),
 		register:   make(chan *Client),
@@ -86,9 +89,50 @@ func (h *Hub) handleEvent(event Event) {
 		h.handleFightControl(event.Data)
 	case EventScore:
 		h.handleScore(event.Data)
+	case EventWarning:
+		h.handleWarning(event.Data)
 	default:
 		log.Printf("unknown event type: %v", event.Type)
 	}
+}
+
+func (h *Hub) handleWarning(data json.RawMessage) {
+	if h.fight.State() != fight.StateRunning {
+		log.Println("warning ignored: fight not running")
+		return
+	}
+
+	var payload WarningPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		log.Printf("invalid warning payload: %v", err)
+		return
+	}
+
+	event := events.WarningEvent{
+		Fighter: events.Fighter(payload.Fighter),
+		Time:    time.Now(),
+	}
+
+	h.eventLog = append(h.eventLog, event)
+
+	penalty := h.warnings.Add(event.Fighter)
+
+	if penalty {
+		// штраф −1 балл
+		h.scoreboard.Apply(events.ScoreEvent{
+			Fighter: event.Fighter,
+			Points:  -1,
+			Time:    time.Now(),
+		})
+
+		log.Printf("PENALTY: fighter=%s -1 point", event.Fighter)
+		h.broadcastScore()
+	}
+
+	red, blue := h.warnings.Count()
+	log.Printf("WARNING: red=%d blue=%d", red, blue)
+
+	h.broadcastWarnings()
 }
 
 func (h *Hub) handleFightControl(data json.RawMessage) {
@@ -126,10 +170,6 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 		if err == nil {
 			h.timer.Stop()
 		}
-
-	default:
-		log.Printf("unknown fight action: %v", evt.Action)
-		return
 	}
 
 	if err != nil {
@@ -153,69 +193,55 @@ func (h *Hub) handleScore(data json.RawMessage) {
 		return
 	}
 
-	judge, ok := h.judges[payload.JudgeID]
-	if !ok {
-		log.Printf("unknown judge: %d", payload.JudgeID)
-		return
-	}
-
-	now := time.Now()
-	if err := judge.CanScore(now); err != nil {
-		log.Printf("judge %d click ignored: %v", payload.JudgeID, err)
-		return
-	}
-
 	event := events.ScoreEvent{
-		JudgeID: payload.JudgeID,
 		Fighter: events.Fighter(payload.Fighter),
 		Points:  payload.Points,
-		Time:    now,
+		Time:    time.Now(),
 	}
 
 	h.eventLog = append(h.eventLog, event)
 	h.scoreboard.Apply(event)
-
-	red, blue := h.scoreboard.Score()
-	log.Printf(
-		"SCORE: judge=%d fighter=%s +%d | TOTAL red=%d blue=%d",
-		event.JudgeID, event.Fighter, event.Points, red, blue,
-	)
-
 	h.broadcastScore()
 }
 
 func (h *Hub) broadcastState() {
-	msg := map[string]string{
-		"type":  "state",
-		"state": h.fight.State().String(),
-	}
-
-	for client := range h.clients {
-		client.send(msg)
+	for c := range h.clients {
+		c.send(map[string]string{
+			"type":  "state",
+			"state": h.fight.State().String(),
+		})
 	}
 }
 
 func (h *Hub) broadcastScore() {
 	red, blue := h.scoreboard.Score()
 
-	msg := map[string]any{
-		"type": "score_update",
-		"red":  red,
-		"blue": blue,
+	for c := range h.clients {
+		c.send(map[string]any{
+			"type": "score_update",
+			"red":  red,
+			"blue": blue,
+		})
 	}
+}
 
-	for client := range h.clients {
-		client.send(msg)
+func (h *Hub) broadcastWarnings() {
+	red, blue := h.warnings.Count()
+
+	for c := range h.clients {
+		c.send(map[string]any{
+			"type": "warnings",
+			"red":  red,
+			"blue": blue,
+		})
 	}
 }
 
 func (h *Hub) broadcastTimer(seconds int) {
-	msg := map[string]any{
-		"type":         "timer",
-		"seconds_left": seconds,
-	}
-
-	for client := range h.clients {
-		client.send(msg)
+	for c := range h.clients {
+		c.send(map[string]any{
+			"type":         "timer",
+			"seconds_left": seconds,
+		})
 	}
 }
