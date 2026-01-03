@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"log"
 	"time"
-	"tkd-judge/internal/events"
-	"tkd-judge/internal/judges"
 
+	"tkd-judge/internal/events"
 	"tkd-judge/internal/fight"
+	"tkd-judge/internal/judges"
 )
 
 type Hub struct {
 	fight *fight.Fight
+	timer *fight.Timer
 
 	scoreboard *fight.Scoreboard
 	judges     map[int]*judges.Judge
@@ -30,8 +31,11 @@ func NewHub() *Hub {
 		j[i] = judges.NewJudge(i, 300*time.Millisecond)
 	}
 
-	return &Hub{
+	timer := fight.NewTimer(20 * time.Second)
+
+	h := &Hub{
 		fight:      fight.NewFight(),
+		timer:      timer,
 		scoreboard: fight.NewScoreboard(),
 		judges:     j,
 		eventLog:   make([]events.ScoreEvent, 0),
@@ -40,6 +44,17 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
+
+	timer.OnTick(func(rem time.Duration) {
+		h.broadcastTimer(int(rem.Seconds()))
+	})
+
+	timer.OnFinished(func() {
+		_ = h.fight.Stop()
+		h.broadcastState()
+	})
+
+	return h
 }
 
 func (h *Hub) Run() {
@@ -50,8 +65,6 @@ func (h *Hub) Run() {
 
 		case client := <-h.register:
 			h.clients[client] = struct{}{}
-
-			// 🔑 отправляем текущее состояние сразу при подключении
 			client.send(map[string]string{
 				"type":  "state",
 				"state": h.fight.State().String(),
@@ -91,12 +104,29 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 	switch evt.Action {
 	case ActionStart:
 		err = h.fight.Start()
+		if err == nil {
+			h.timer.Reset()
+			h.timer.Start()
+		}
+
 	case ActionPause:
 		err = h.fight.Pause()
+		if err == nil {
+			h.timer.Pause()
+		}
+
 	case ActionResume:
 		err = h.fight.Resume()
+		if err == nil {
+			h.timer.Start()
+		}
+
 	case ActionStop:
 		err = h.fight.Stop()
+		if err == nil {
+			h.timer.Stop()
+		}
+
 	default:
 		log.Printf("unknown fight action: %v", evt.Action)
 		return
@@ -111,19 +141,7 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 	h.broadcastState()
 }
 
-func (h *Hub) broadcastState() {
-	msg := map[string]string{
-		"type":  "state",
-		"state": h.fight.State().String(),
-	}
-
-	for client := range h.clients {
-		client.send(msg)
-	}
-}
-
 func (h *Hub) handleScore(data json.RawMessage) {
-	// 1. бой должен идти
 	if h.fight.State() != fight.StateRunning {
 		log.Println("score ignored: fight not running")
 		return
@@ -166,6 +184,17 @@ func (h *Hub) handleScore(data json.RawMessage) {
 	h.broadcastScore()
 }
 
+func (h *Hub) broadcastState() {
+	msg := map[string]string{
+		"type":  "state",
+		"state": h.fight.State().String(),
+	}
+
+	for client := range h.clients {
+		client.send(msg)
+	}
+}
+
 func (h *Hub) broadcastScore() {
 	red, blue := h.scoreboard.Score()
 
@@ -173,6 +202,17 @@ func (h *Hub) broadcastScore() {
 		"type": "score_update",
 		"red":  red,
 		"blue": blue,
+	}
+
+	for client := range h.clients {
+		client.send(msg)
+	}
+}
+
+func (h *Hub) broadcastTimer(seconds int) {
+	msg := map[string]any{
+		"type":         "timer",
+		"seconds_left": seconds,
 	}
 
 	for client := range h.clients {
