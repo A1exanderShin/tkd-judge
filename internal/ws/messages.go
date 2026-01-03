@@ -6,7 +6,14 @@ type EventType string
 
 const (
 	EventFightControl EventType = "fight_control"
+	EventScore        EventType = "score"
 )
+
+type ScorePayload struct {
+	JudgeID int    `json:"JudgeID"`
+	Fighter string `json:"Fighter"` // "red" | "blue"
+	Points  int    `json:"Points"`  // 1 | 2 | 3
+}
 
 type FightAction string
 
