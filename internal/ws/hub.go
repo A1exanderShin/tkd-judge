@@ -5,12 +5,15 @@ import (
 	"log"
 	"time"
 
+	"tkd-judge/internal/config"
 	"tkd-judge/internal/events"
 	"tkd-judge/internal/fight"
 	"tkd-judge/internal/judges"
 )
 
 type Hub struct {
+	cfg config.Config
+
 	fight *fight.Fight
 	timer *fight.Timer
 
@@ -28,18 +31,21 @@ type Hub struct {
 }
 
 func NewHub() *Hub {
+	cfg := config.Default()
+
 	j := make(map[int]*judges.Judge)
-	for i := 1; i <= 4; i++ {
-		j[i] = judges.NewJudge(i, 300*time.Millisecond)
+	for i := 1; i <= cfg.JudgesCount; i++ {
+		j[i] = judges.NewJudge(i, cfg.AntiClick)
 	}
 
-	timer := fight.NewTimer(120 * time.Second)
+	timer := fight.NewTimer(cfg.RoundDuration)
 
 	h := &Hub{
+		cfg:        cfg,
 		fight:      fight.NewFight(),
 		timer:      timer,
 		scoreboard: fight.NewScoreboard(),
-		warnings:   fight.NewWarningCounter(),
+		warnings:   fight.NewWarningCounter(cfg.WarningsForPenalty),
 		judges:     j,
 		eventLog:   make([]any, 0),
 		events:     make(chan Event, 16),
@@ -91,6 +97,8 @@ func (h *Hub) handleEvent(event Event) {
 		h.handleScore(event.Data)
 	case EventWarning:
 		h.handleWarning(event.Data)
+	case EventReset:
+		h.handleReset()
 	default:
 		log.Printf("unknown event type: %v", event.Type)
 	}

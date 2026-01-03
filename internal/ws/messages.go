@@ -40,3 +40,7 @@ const (
 type WarningPayload struct {
 	Fighter string `json:"Fighter"` // "red" | "blue"
 }
+
+const (
+	EventReset EventType = "reset"
+)

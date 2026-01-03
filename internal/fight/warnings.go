@@ -3,24 +3,25 @@ package fight
 import "tkd-judge/internal/events"
 
 type WarningCounter struct {
-	red  int
-	blue int
+	red   int
+	blue  int
+	limit int
 }
 
-func NewWarningCounter() *WarningCounter {
-	return &WarningCounter{}
+func NewWarningCounter(limit int) *WarningCounter {
+	return &WarningCounter{limit: limit}
 }
 
 func (w *WarningCounter) Add(fighter events.Fighter) (penalty bool) {
 	switch fighter {
 	case events.FighterRed:
 		w.red++
-		if w.red%3 == 0 {
+		if w.red%w.limit == 0 {
 			return true
 		}
 	case events.FighterBlue:
 		w.blue++
-		if w.blue%3 == 0 {
+		if w.blue%w.limit == 0 {
 			return true
 		}
 	}
