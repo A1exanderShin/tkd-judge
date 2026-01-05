@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// тонкая обертка над вебсокет соединением, отвечает только за отправку данных клиеннту
 type Client struct {
 	conn *websocket.Conn
 }

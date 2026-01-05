@@ -9,9 +9,13 @@ import (
 )
 
 func main() {
+	// создание центрального объекта системы, через который проходят все клиенты, события и state боя
 	hub := ws.NewHub()
-	go hub.Run()
 
+	// hub запускается в отдельной горутине
+	// внутри Run() бесконечный select и обработка каналов
+	go hub.Run()
+	
 	http.Handle("/ws", ws.NewWSHandler(hub))
 	http.Handle("/protocol", httpapi.NewProtocolHandler(hub))
 	http.Handle("/protocol/pdf", httpapi.NewProtocolPDFHandler(hub))

@@ -8,6 +8,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Превращает HTTP-запрос в WebSocket
+// CheckOrigin: return true - считается плохим тоном для прода, но при этом нормально в локальной сети
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true

@@ -14,7 +14,7 @@ import (
 type Hub struct {
 	cfg config.Config
 
-	fight *fight.Fight
+	fight *fight.Fight // FSM боя
 	timer *fight.Timer
 
 	scoreboard *fight.Scoreboard
@@ -23,8 +23,9 @@ type Hub struct {
 	judges   map[int]*judges.Judge
 	eventLog []any
 
-	events chan Event
+	events chan Event // внешние события, один вход в систему, один обработчик (actor-model)
 
+	// Hub из пакета Gorilla WS
 	clients    map[*Client]struct{}
 	register   chan *Client
 	unregister chan *Client
@@ -33,13 +34,16 @@ type Hub struct {
 func NewHub() *Hub {
 	cfg := config.Default()
 
+	// инициализация судей
 	j := make(map[int]*judges.Judge)
 	for i := 1; i <= cfg.JudgesCount; i++ {
 		j[i] = judges.NewJudge(i, cfg.AntiClick)
 	}
 
+	// таймер
 	timer := fight.NewTimer(cfg.RoundDuration)
 
+	// собираем hub - вся система и все компоненты в одно целое
 	h := &Hub{
 		cfg:        cfg,
 		fight:      fight.NewFight(),
@@ -54,10 +58,12 @@ func NewHub() *Hub {
 		unregister: make(chan *Client),
 	}
 
+	// тикание таймера, отправка в консоль
 	timer.OnTick(func(rem time.Duration) {
 		h.broadcastTimer(int(rem.Seconds()))
 	})
 
+	// таймер закончился, бой остановился, отправка состояния
 	timer.OnFinished(func() {
 		_ = h.fight.Stop()
 		h.broadcastState()
@@ -66,12 +72,15 @@ func NewHub() *Hub {
 	return h
 }
 
+// event loop
 func (h *Hub) Run() {
 	for {
 		select {
+		// входящие события, все изменения состояния здесь
 		case event := <-h.events:
 			h.handleEvent(event)
 
+		// регистрация клиента
 		case client := <-h.register:
 			h.clients[client] = struct{}{}
 			client.send(map[string]string{
@@ -79,16 +88,19 @@ func (h *Hub) Run() {
 				"state": h.fight.State().String(),
 			})
 
+		// отключение клиента
 		case client := <-h.unregister:
 			delete(h.clients, client)
 		}
 	}
 }
 
+// точка входа событий
 func (h *Hub) Publish(event Event) {
 	h.events <- event
 }
 
+// router доменных событий
 func (h *Hub) handleEvent(event Event) {
 	switch event.Type {
 	case EventFightControl:
@@ -105,6 +117,7 @@ func (h *Hub) handleEvent(event Event) {
 }
 
 func (h *Hub) handleWarning(data json.RawMessage) {
+	// нельзя штрафовать вне боя
 	if h.fight.State() != fight.StateRunning {
 		log.Println("warning ignored: fight not running")
 		return
@@ -121,6 +134,7 @@ func (h *Hub) handleWarning(data json.RawMessage) {
 		Time:    time.Now(),
 	}
 
+	// event sourcing
 	h.eventLog = append(h.eventLog, event)
 
 	penalty := h.warnings.Add(event.Fighter)
@@ -153,6 +167,7 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 
 	var err error
 
+	// FSM → Running
 	switch evt.Action {
 	case ActionStart:
 		err = h.fight.Start()
@@ -173,6 +188,7 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 			h.timer.Start()
 		}
 
+	// FSM → Stopped
 	case ActionStop:
 		err = h.fight.Stop()
 		if err == nil {
@@ -190,6 +206,7 @@ func (h *Hub) handleFightControl(data json.RawMessage) {
 }
 
 func (h *Hub) handleScore(data json.RawMessage) {
+	// очки только в бою
 	if h.fight.State() != fight.StateRunning {
 		log.Println("score ignored: fight not running")
 		return

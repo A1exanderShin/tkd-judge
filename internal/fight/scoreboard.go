@@ -11,7 +11,9 @@ func NewScoreboard() *Scoreboard {
 	return &Scoreboard{}
 }
 
+// принять конкретное доменное событие
 func (s *Scoreboard) Apply(event events.ScoreEvent) {
+	// решение кому начислять очки
 	switch event.Fighter {
 	case events.FighterRed:
 		s.red += event.Points

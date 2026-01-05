@@ -12,7 +12,6 @@ func NewFight() *Fight {
 
 // Start переводит бой из IDLE в RUNNING
 func (f *Fight) Start() error {
-	// TODO:
 	// - если состояние не IDLE → ошибка
 	// - если ок → StateRunning
 	if f.state != StateIdle {
@@ -24,7 +23,6 @@ func (f *Fight) Start() error {
 
 // Pause переводит бой из RUNNING в PAUSED
 func (f *Fight) Pause() error {
-	// TODO:
 	// - если состояние не RUNNING → ошибка
 	// - если ок → StatePaused
 	if f.state != StateRunning {
@@ -36,7 +34,6 @@ func (f *Fight) Pause() error {
 
 // Resume переводит бой из PAUSED в RUNNING
 func (f *Fight) Resume() error {
-	// TODO:
 	// - если состояние не PAUSED → ошибка
 	// - если ок → StateRunning
 	if f.state != StatePaused {
@@ -48,7 +45,6 @@ func (f *Fight) Resume() error {
 
 // Stop переводит бой из RUNNING в FINISHED
 func (f *Fight) Stop() error {
-	// TODO:
 	// - если состояние уже FINISHED → ErrFightFinished
 	// - если состояние не RUNNING → ErrInvalidTransition
 	// - если ок → StateFinished

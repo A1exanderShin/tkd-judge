@@ -3,10 +3,10 @@ package fight
 import "time"
 
 type Timer struct {
-	duration   time.Duration
-	remaining  time.Duration
-	ticker     *time.Ticker
-	stop       chan struct{}
+	duration   time.Duration // исходная длительность раунда
+	remaining  time.Duration // текущее оставшееся время
+	ticker     *time.Ticker  // источник тиков раз в секунду
+	stop       chan struct{} // сигнал завершения горутины
 	onTick     func(remaining time.Duration)
 	onFinished func()
 }

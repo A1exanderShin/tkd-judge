@@ -12,8 +12,10 @@ func NewWarningCounter(limit int) *WarningCounter {
 	return &WarningCounter{limit: limit}
 }
 
+// добавляет штрафы
 func (w *WarningCounter) Add(fighter events.Fighter) (penalty bool) {
 	switch fighter {
+	// проверка кратности, каждое 3-е предупреждение = штраф
 	case events.FighterRed:
 		w.red++
 		if w.red%w.limit == 0 {
