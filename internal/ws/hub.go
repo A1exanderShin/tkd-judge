@@ -11,227 +11,327 @@ import (
 	"tkd-judge/internal/judges"
 )
 
+type hubEvent struct {
+	event  Event
+	client *Client
+}
+
+type judgeScore struct {
+	red  int
+	blue int
+}
+
 type Hub struct {
 	cfg config.Config
 
-	fight *fight.Fight // FSM боя
-	timer *fight.Timer
+	fight *fight.Fight
+
+	roundTimer *fight.Timer
+	breakTimer *fight.Timer
+
+	roundDuration time.Duration
+	breakDuration time.Duration
 
 	scoreboard *fight.Scoreboard
 	warnings   *fight.WarningCounter
 
-	judges   map[int]*judges.Judge
-	eventLog []any
+	judges      map[int]*judges.Judge
+	judgeScores map[int]judgeScore
 
-	events chan Event // внешние события, один вход в систему, один обработчик (actor-model)
+	events chan hubEvent
 
-	// Hub из пакета Gorilla WS
 	clients    map[*Client]struct{}
+	mainJudge  *Client
+	sideJudges map[int]*Client
+
 	register   chan *Client
 	unregister chan *Client
 }
 
+/* ================= CONSTRUCTOR ================= */
+
 func NewHub() *Hub {
 	cfg := config.Default()
 
-	// инициализация судей
-	j := make(map[int]*judges.Judge)
-	for i := 1; i <= cfg.JudgesCount; i++ {
-		j[i] = judges.NewJudge(i, cfg.AntiClick)
-	}
-
-	// таймер
-	timer := fight.NewTimer(cfg.RoundDuration)
-
-	// собираем hub - вся система и все компоненты в одно целое
 	h := &Hub{
-		cfg:        cfg,
-		fight:      fight.NewFight(),
-		timer:      timer,
-		scoreboard: fight.NewScoreboard(),
-		warnings:   fight.NewWarningCounter(cfg.WarningsForPenalty),
-		judges:     j,
-		eventLog:   make([]any, 0),
-		events:     make(chan Event, 16),
+		cfg:           cfg,
+		fight:         fight.NewFight(),
+		roundDuration: cfg.RoundDuration,
+		breakDuration: 30 * time.Second,
+
+		scoreboard:  fight.NewScoreboard(),
+		warnings:    fight.NewWarningCounter(cfg.WarningsForPenalty),
+		judges:      make(map[int]*judges.Judge),
+		judgeScores: make(map[int]judgeScore),
+
+		events:     make(chan hubEvent, 16),
 		clients:    make(map[*Client]struct{}),
+		sideJudges: make(map[int]*Client),
+
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
 
-	// тикание таймера, отправка в консоль
-	timer.OnTick(func(rem time.Duration) {
-		h.broadcastTimer(int(rem.Seconds()))
+	for i := 1; i <= cfg.JudgesCount; i++ {
+		h.judges[i] = judges.NewJudge(i, cfg.AntiClick)
+	}
+
+	// ===== timers =====
+	h.roundTimer = fight.NewTimer(h.roundDuration)
+	h.breakTimer = fight.NewTimer(h.breakDuration)
+
+	h.roundTimer.OnTick(func(rem time.Duration) {
+		h.broadcastTimer(int(rem.Seconds()), "round")
+	})
+	h.breakTimer.OnTick(func(rem time.Duration) {
+		h.broadcastTimer(int(rem.Seconds()), "break")
 	})
 
-	// таймер закончился, бой остановился, отправка состояния
-	timer.OnFinished(func() {
-		_ = h.fight.Stop()
-		h.broadcastState()
-	})
+	h.roundTimer.OnFinished(h.onRoundFinished)
+	h.breakTimer.OnFinished(h.onBreakFinished)
 
 	return h
 }
 
-// event loop
+/* ================= CORE LOOP ================= */
+
+func (h *Hub) Publish(e Event, c *Client) {
+	h.events <- hubEvent{event: e, client: c}
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
-		// входящие события, все изменения состояния здесь
-		case event := <-h.events:
-			h.handleEvent(event)
 
-		// регистрация клиента
-		case client := <-h.register:
-			h.clients[client] = struct{}{}
-			client.send(map[string]string{
-				"type":  "state",
-				"state": h.fight.State().String(),
-			})
+		case ev := <-h.events:
+			h.handleEvent(ev.event, ev.client)
 
-		// отключение клиента
-		case client := <-h.unregister:
-			delete(h.clients, client)
+		case c := <-h.register:
+			if c.role == RoleMainJudge {
+				if h.mainJudge != nil {
+					c.close()
+					continue
+				}
+				h.mainJudge = c
+				log.Println("MAIN JUDGE CONNECTED")
+			}
+
+			if c.role == RoleSideJudge {
+				h.sideJudges[c.judgeID] = c
+				log.Printf("SIDE JUDGE %d CONNECTED", c.judgeID)
+			}
+
+			h.clients[c] = struct{}{}
+			h.sendFullState(c)
+
+		case c := <-h.unregister:
+			delete(h.clients, c)
+
+			if c == h.mainJudge {
+				h.mainJudge = nil
+			}
+			if c.role == RoleSideJudge {
+				delete(h.sideJudges, c.judgeID)
+			}
 		}
 	}
 }
 
-// точка входа событий
-func (h *Hub) Publish(event Event) {
-	h.events <- event
-}
+/* ================= EVENT ROUTER ================= */
 
-// router доменных событий
-func (h *Hub) handleEvent(event Event) {
-	switch event.Type {
+func (h *Hub) handleEvent(e Event, c *Client) {
+	switch e.Type {
+
 	case EventFightControl:
-		h.handleFightControl(event.Data)
+		if c.role == RoleMainJudge {
+			h.handleFightControl(e.Data)
+		}
+
+	case EventFightSettings:
+		if c.role == RoleMainJudge {
+			h.handleFightSettings(e.Data)
+		}
+
 	case EventScore:
-		h.handleScore(event.Data)
-	case EventWarning:
-		h.handleWarning(event.Data)
+		if c.role == RoleSideJudge {
+			h.handleScore(e.Data, c)
+		}
+
 	case EventReset:
-		h.handleReset()
-	default:
-		log.Printf("unknown event type: %v", event.Type)
+		if c.role == RoleMainJudge {
+			h.handleReset()
+		}
 	}
 }
 
-func (h *Hub) handleWarning(data json.RawMessage) {
-	// нельзя штрафовать вне боя
-	if h.fight.State() != fight.StateRunning {
-		log.Println("warning ignored: fight not running")
-		return
-	}
-
-	var payload WarningPayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		log.Printf("invalid warning payload: %v", err)
-		return
-	}
-
-	event := events.WarningEvent{
-		Fighter: events.Fighter(payload.Fighter),
-		Time:    time.Now(),
-	}
-
-	// event sourcing
-	h.eventLog = append(h.eventLog, event)
-
-	penalty := h.warnings.Add(event.Fighter)
-
-	if penalty {
-		// штраф −1 балл
-		h.scoreboard.Apply(events.ScoreEvent{
-			Fighter: event.Fighter,
-			Points:  -1,
-			Time:    time.Now(),
-		})
-
-		log.Printf("PENALTY: fighter=%s -1 point", event.Fighter)
-		h.broadcastScore()
-	}
-
-	red, blue := h.warnings.Count()
-	log.Printf("WARNING: red=%d blue=%d", red, blue)
-
-	h.broadcastWarnings()
-}
+/* ================= FIGHT CONTROL ================= */
 
 func (h *Hub) handleFightControl(data json.RawMessage) {
 	var evt FightControlEvent
-
-	if err := json.Unmarshal(data, &evt); err != nil {
-		log.Printf("invalid fight control payload: %v", err)
+	if json.Unmarshal(data, &evt) != nil {
 		return
 	}
 
-	var err error
-
-	// FSM → Running
 	switch evt.Action {
+
 	case ActionStart:
-		err = h.fight.Start()
-		if err == nil {
-			h.timer.Reset()
-			h.timer.Start()
-		}
+		h.fight.Start()
+		h.roundTimer.Reset()
+		h.roundTimer.Start()
 
 	case ActionPause:
-		err = h.fight.Pause()
-		if err == nil {
-			h.timer.Pause()
-		}
+		h.roundTimer.Stop()
+		h.breakTimer.Stop()
+		h.fight.Pause()
 
-	case ActionResume:
-		err = h.fight.Resume()
-		if err == nil {
-			h.timer.Start()
-		}
-
-	// FSM → Stopped
 	case ActionStop:
-		err = h.fight.Stop()
-		if err == nil {
-			h.timer.Stop()
-		}
+		h.roundTimer.Stop()
+		h.breakTimer.Stop()
+		h.fight.Stop()
 	}
 
-	if err != nil {
-		log.Printf("fight action error: %v", err)
-		return
-	}
-
-	log.Printf("fight state changed to %s", h.fight.State())
 	h.broadcastState()
 }
 
-func (h *Hub) handleScore(data json.RawMessage) {
-	// очки только в бою
+/* ================= SETTINGS ================= */
+
+func (h *Hub) handleFightSettings(data json.RawMessage) {
+	if h.fight.State() == fight.StateRunning {
+		return
+	}
+
+	var p FightSettingsPayload
+	if json.Unmarshal(data, &p) != nil {
+		return
+	}
+
+	if p.RoundDuration > 0 {
+		h.roundDuration = time.Duration(p.RoundDuration) * time.Second
+		h.roundTimer.SetDuration(h.roundDuration)
+	}
+
+	if p.BreakDuration > 0 {
+		h.breakDuration = time.Duration(p.BreakDuration) * time.Second
+		h.breakTimer.SetDuration(h.breakDuration)
+	}
+
+	if p.Rounds > 0 {
+		h.fight.SetRounds(p.Rounds)
+	}
+
+	h.broadcastSettings()
+}
+
+/* ================= SCORE ================= */
+
+func (h *Hub) handleScore(data json.RawMessage, c *Client) {
 	if h.fight.State() != fight.StateRunning {
-		log.Println("score ignored: fight not running")
 		return
 	}
 
-	var payload ScorePayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		log.Printf("invalid score payload: %v", err)
+	var p ScorePayload
+	if json.Unmarshal(data, &p) != nil {
 		return
 	}
 
-	event := events.ScoreEvent{
-		Fighter: events.Fighter(payload.Fighter),
-		Points:  payload.Points,
+	if h.judges[c.judgeID].CanScore(time.Now()) != nil {
+		return
+	}
+
+	ev := events.ScoreEvent{
+		JudgeID: c.judgeID,
+		Fighter: events.Fighter(p.Fighter),
+		Points:  p.Points,
 		Time:    time.Now(),
 	}
 
-	h.eventLog = append(h.eventLog, event)
-	h.scoreboard.Apply(event)
+	h.scoreboard.Apply(ev)
+
+	js := h.judgeScores[c.judgeID]
+	if p.Fighter == "red" {
+		js.red += p.Points
+	} else {
+		js.blue += p.Points
+	}
+	h.judgeScores[c.judgeID] = js
+
 	h.broadcastScore()
+	h.broadcastJudgeScores()
+}
+
+/* ================= TIMERS ================= */
+
+func (h *Hub) onRoundFinished() {
+	if h.fight.CurrentRound() < h.fight.TotalRounds() {
+		h.fight.SetState(fight.StateBreak)
+		h.breakTimer.Reset()
+		h.breakTimer.Start()
+	} else {
+		h.fight.Stop()
+	}
+	h.broadcastState()
+}
+
+func (h *Hub) onBreakFinished() {
+	// увеличиваем номер раунда
+	h.fight.NextRound()
+
+	// переводим в ожидание старта
+	h.fight.SetState(fight.StatePaused)
+
+	// 🔥 ВАЖНО: шлём обновлённые настройки боя
+	h.broadcastSettings()
+
+	// состояние
+	h.broadcastState()
+}
+
+/* ================= RESET ================= */
+
+func (h *Hub) handleReset() {
+	h.roundTimer.Stop()
+	h.breakTimer.Stop()
+
+	h.fight = fight.NewFight()
+	h.scoreboard = fight.NewScoreboard()
+	h.warnings = fight.NewWarningCounter(h.cfg.WarningsForPenalty)
+	h.judgeScores = make(map[int]judgeScore)
+
+	h.broadcastState()
+	h.broadcastScore()
+	h.broadcastJudgeScores()
+}
+
+/* ================= BROADCAST ================= */
+
+func (h *Hub) sendFullState(c *Client) {
+	c.send(map[string]any{
+		"type":  "state",
+		"state": h.fight.State().String(),
+	})
+
+	red, blue := h.scoreboard.Score()
+	c.send(map[string]any{
+		"type": "score_update",
+		"red":  red,
+		"blue": blue,
+	})
+
+	h.broadcastSettingsTo(c)
+
+	if c.role == RoleSideJudge {
+		c.send(map[string]any{
+			"type":    "judge_id",
+			"judgeID": c.judgeID,
+		})
+	}
+
+	h.broadcastJudgeScoresTo(c)
 }
 
 func (h *Hub) broadcastState() {
 	for c := range h.clients {
-		c.send(map[string]string{
+		c.send(map[string]any{
 			"type":  "state",
 			"state": h.fight.State().String(),
 		})
@@ -239,9 +339,8 @@ func (h *Hub) broadcastState() {
 }
 
 func (h *Hub) broadcastScore() {
-	red, blue := h.scoreboard.Score()
-
 	for c := range h.clients {
+		red, blue := h.scoreboard.Score()
 		c.send(map[string]any{
 			"type": "score_update",
 			"red":  red,
@@ -250,23 +349,64 @@ func (h *Hub) broadcastScore() {
 	}
 }
 
-func (h *Hub) broadcastWarnings() {
-	red, blue := h.warnings.Count()
-
+func (h *Hub) broadcastJudgeScores() {
 	for c := range h.clients {
-		c.send(map[string]any{
-			"type": "warnings",
-			"red":  red,
-			"blue": blue,
-		})
+		h.broadcastJudgeScoresTo(c)
 	}
 }
 
-func (h *Hub) broadcastTimer(seconds int) {
+func (h *Hub) broadcastJudgeScoresTo(c *Client) {
+	type row struct {
+		ID   int `json:"id"`
+		Red  int `json:"red"`
+		Blue int `json:"blue"`
+	}
+
+	out := []row{}
+	for i := 1; i <= h.cfg.JudgesCount; i++ {
+		js := h.judgeScores[i]
+		out = append(out, row{ID: i, Red: js.red, Blue: js.blue})
+	}
+
+	c.send(map[string]any{
+		"type":   "judge_scores",
+		"scores": out,
+	})
+}
+
+func (h *Hub) broadcastSettings() {
+	for c := range h.clients {
+		h.broadcastSettingsTo(c)
+	}
+}
+
+func (h *Hub) broadcastSettingsTo(c *Client) {
+	c.send(map[string]any{
+		"type":           "fight_settings",
+		"round_duration": int(h.roundDuration.Seconds()),
+		"break_duration": int(h.breakDuration.Seconds()),
+		"round":          h.fight.CurrentRound(),
+		"rounds_total":   h.fight.TotalRounds(),
+	})
+}
+
+func (h *Hub) broadcastTimer(seconds int, mode string) {
 	for c := range h.clients {
 		c.send(map[string]any{
 			"type":         "timer",
 			"seconds_left": seconds,
+			"mode":         mode, // round | break
 		})
 	}
+}
+
+/* ================= HELPERS ================= */
+
+func (h *Hub) nextFreeJudgeID() int {
+	for i := 1; i <= h.cfg.JudgesCount; i++ {
+		if _, ok := h.sideJudges[i]; !ok {
+			return i
+		}
+	}
+	return 0
 }

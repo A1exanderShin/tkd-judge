@@ -3,20 +3,25 @@ package fight
 import "time"
 
 type Timer struct {
-	duration   time.Duration // исходная длительность раунда
-	remaining  time.Duration // текущее оставшееся время
-	ticker     *time.Ticker  // источник тиков раз в секунду
-	stop       chan struct{} // сигнал завершения горутины
-	onTick     func(remaining time.Duration)
+	duration   time.Duration
+	remaining  time.Duration
+	ticker     *time.Ticker
+	stop       chan struct{}
+	onTick     func(time.Duration)
 	onFinished func()
 }
 
-func NewTimer(duration time.Duration) *Timer {
+func NewTimer(d time.Duration) *Timer {
 	return &Timer{
-		duration:  duration,
-		remaining: duration,
+		duration:  d,
+		remaining: d,
 		stop:      make(chan struct{}),
 	}
+}
+
+func (t *Timer) SetDuration(d time.Duration) {
+	t.duration = d
+	t.remaining = d
 }
 
 func (t *Timer) Start() {
@@ -31,11 +36,9 @@ func (t *Timer) Start() {
 			select {
 			case <-t.ticker.C:
 				t.remaining -= time.Second
-
 				if t.onTick != nil {
 					t.onTick(t.remaining)
 				}
-
 				if t.remaining <= 0 {
 					t.Stop()
 					if t.onFinished != nil {
@@ -43,16 +46,11 @@ func (t *Timer) Start() {
 					}
 					return
 				}
-
 			case <-t.stop:
 				return
 			}
 		}
 	}()
-}
-
-func (t *Timer) Pause() {
-	t.Stop()
 }
 
 func (t *Timer) Stop() {

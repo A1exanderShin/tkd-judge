@@ -6,13 +6,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// тонкая обертка над вебсокет соединением, отвечает только за отправку данных клиеннту
+// Client — тонкая обертка над websocket-соединением.
+// Никакой логики, только отправка и закрытие.
 type Client struct {
-	conn *websocket.Conn
+	conn    *websocket.Conn
+	role    Role
+	judgeID int // только для боковых судей (1–4)
 }
 
-func NewClient(conn *websocket.Conn) *Client {
-	return &Client{conn: conn}
+func NewClient(conn *websocket.Conn, role Role) *Client {
+	return &Client{
+		conn: conn,
+		role: role,
+	}
 }
 
 func (c *Client) send(v any) {
@@ -21,8 +27,6 @@ func (c *Client) send(v any) {
 	}
 }
 
-func (c *Client) sendRaw(data []byte) {
-	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		log.Printf("ws send error: %v", err)
-	}
+func (c *Client) close() {
+	_ = c.conn.Close()
 }

@@ -8,6 +8,7 @@ const (
 	StateIdle State = iota
 	StateRunning
 	StatePaused
+	StateBreak
 	StateFinished
 )
 
@@ -20,6 +21,8 @@ func (s State) String() string {
 		return "RUNNING"
 	case StatePaused:
 		return "PAUSED"
+	case StateBreak:
+		return "BREAK"
 	case StateFinished:
 		return "FINISHED"
 	default:
@@ -28,9 +31,6 @@ func (s State) String() string {
 }
 
 var (
-	// ErrInvalidTransition — попытка недопустимого перехода FSM
-	ErrInvalidTransition = errors.New("invalid fight state transition")
-
 	// ErrFightFinished — любые действия после завершения боя
 	ErrFightFinished = errors.New("fight already finished")
 )

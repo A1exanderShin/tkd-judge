@@ -1,156 +1,232 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8" />
-    <title>TKD Judge – Demo</title>
+    <meta charset="UTF-8">
+    <title>TKD Judge</title>
+
     <style>
         body {
             font-family: Arial, sans-serif;
+            background: #f4f4f4;
             padding: 20px;
-            background: #f5f5f5;
-        }
-        h1 {
-            margin-bottom: 10px;
-        }
-        button {
-            margin: 4px;
-            padding: 8px 14px;
-            font-size: 14px;
-            cursor: pointer;
         }
         .panel {
-            margin-bottom: 15px;
-            padding: 10px;
             background: #fff;
+            padding: 14px;
+            margin-bottom: 14px;
             border-radius: 6px;
+        }
+        button {
+            padding: 12px 18px;
+            margin: 6px;
+            font-size: 16px;
         }
         .red { color: darkred; }
         .blue { color: darkblue; }
-        pre {
-            background: #111;
-            color: #0f0;
-            padding: 10px;
-            height: 200px;
-            overflow-y: auto;
-            font-size: 12px;
+        .timer {
+            font-size: 28px;
+            font-weight: bold;
         }
+        .hidden { display: none; }
+        .center { text-align: center; }
     </style>
 </head>
+
 <body>
 
-<h1>TKD Judge – Demo UI</h1>
+<h2>TKD Judge</h2>
 
-<div class="panel">
-    <strong>State:</strong> <span id="state">—</span><br/>
-    <strong>Timer:</strong> <span id="timer">—</span>
-</div>
+<!-- ================= MAIN JUDGE ================= -->
+<div id="mainPanel" class="panel hidden">
 
-<div class="panel">
-    <strong class="red">Red:</strong> <span id="redScore">0</span> |
-    Warnings: <span id="redWarnings">0</span><br/>
-    <strong class="blue">Blue:</strong> <span id="blueScore">0</span> |
-    Warnings: <span id="blueWarnings">0</span>
-</div>
+    <div>
+        <b>State:</b> <span id="state">—</span><br>
+        <b>Round:</b> <span id="round">—</span>
+    </div>
 
-<div class="panel">
-    <h3>Fight control</h3>
+    <div class="timer" id="timer">—</div>
+
+    <hr>
+
+    <div>
+        <h3>Score</h3>
+        <h2>
+            <span class="red" id="redScore">0</span>
+            :
+            <span class="blue" id="blueScore">0</span>
+        </h2>
+    </div>
+
+    <hr>
+
     <button onclick="fight('start')">Start</button>
     <button onclick="fight('pause')">Pause</button>
-    <button onclick="fight('resume')">Resume</button>
     <button onclick="fight('stop')">Stop</button>
     <button onclick="resetFight()">Reset</button>
+
+    <hr>
+
+    <h3>Settings (before fight)</h3>
+
+    <label>Rounds:
+        <input type="number" id="setRounds" min="1" value="1">
+    </label><br><br>
+
+    <label>Round duration (sec):
+        <input type="number" id="setRoundTime" min="5" value="60">
+    </label><br><br>
+
+    <label>Break duration (sec):
+        <input type="number" id="setBreakTime" min="5" value="30">
+    </label><br><br>
+
+    <button onclick="applySettings()">Apply settings</button>
 </div>
 
-<div class="panel">
-    <h3>Judges</h3>
-    <div>
-        <strong class="red">Red</strong><br/>
-        <button onclick="score(1, 'red', 1)">+1</button>
-        <button onclick="score(1, 'red', 2)">+2</button>
-        <button onclick="score(1, 'red', 3)">+3</button>
-        <button onclick="warning('red')">Warning</button>
-    </div>
-    <div style="margin-top:10px;">
-        <strong class="blue">Blue</strong><br/>
-        <button onclick="score(1, 'blue', 1)">+1</button>
-        <button onclick="score(1, 'blue', 2)">+2</button>
-        <button onclick="score(1, 'blue', 3)">+3</button>
-        <button onclick="warning('blue')">Warning</button>
-    </div>
-</div>
+<!-- ================= SIDE JUDGE ================= -->
+<div id="sidePanel" class="panel hidden center">
 
-<div class="panel">
-    <h3>Logs</h3>
-    <pre id="log"></pre>
+    <h3>Side judge</h3>
+    <div><b>Judge ID:</b> <span id="judgeID">—</span></div>
+
+    <h1>
+        <span class="red" id="myRed">0</span>
+        :
+        <span class="blue" id="myBlue">0</span>
+    </h1>
+
+    <button onclick="score('red')" class="red">+1 Red</button>
+    <button onclick="score('blue')" class="blue">+1 Blue</button>
 </div>
 
 <script>
-    const logEl = document.getElementById("log");
+    /* ================= INIT ================= */
 
-    function log(msg) {
-        logEl.textContent += msg + "\n";
-        logEl.scrollTop = logEl.scrollHeight;
+    var qs = new URLSearchParams(location.search);
+    var role = qs.get("role") || "side";
+    var judge = qs.get("judge");
+
+    var ws;
+    var myJudgeID = null;
+
+    var currentRound = 1;
+    var totalRounds = 1;
+
+    /* ================= CONNECT ================= */
+
+    function connect() {
+        var url = "ws://" + location.host + "/ws?role=" + role;
+        if (judge) url += "&judge=" + judge;
+
+        ws = new WebSocket(url);
+
+        ws.onmessage = function (e) {
+            handle(JSON.parse(e.data));
+        };
     }
 
-    const ws = new WebSocket("ws://localhost:8080/ws");
+    /* ================= HANDLER ================= */
 
-    ws.onopen = () => log("CONNECTED");
+    function handle(msg) {
+        switch (msg.type) {
 
-    ws.onmessage = e => {
-        log("← " + e.data);
-        const msg = JSON.parse(e.data);
+            case "state": {
+                var el = document.getElementById("state");
+                if (el) el.textContent = msg.state;
+                updateRound();
+                break;
+            }
 
-        if (msg.type === "state") {
-            document.getElementById("state").textContent = msg.state;
+            case "timer": {
+                var t = document.getElementById("timer");
+                if (t) t.textContent = msg.seconds_left + "s (" + msg.mode + ")";
+                break;
+            }
+
+            case "fight_settings": {
+                currentRound = msg.round;
+                totalRounds = msg.rounds_total;
+                updateRound();
+                break;
+            }
+
+            case "score_update": {
+                var r = document.getElementById("redScore");
+                var b = document.getElementById("blueScore");
+                if (r) r.textContent = msg.red;
+                if (b) b.textContent = msg.blue;
+                break;
+            }
+
+            case "judge_id": {
+                myJudgeID = msg.judgeID;
+                var jid = document.getElementById("judgeID");
+                if (jid) jid.textContent = myJudgeID;
+                break;
+            }
+
+            case "judge_scores": {
+                if (!myJudgeID) return;
+                for (var i = 0; i < msg.scores.length; i++) {
+                    var row = msg.scores[i];
+                    if (row.id === myJudgeID) {
+                        document.getElementById("myRed").textContent = row.red;
+                        document.getElementById("myBlue").textContent = row.blue;
+                    }
+                }
+                break;
+            }
         }
+    }
 
-        if (msg.type === "timer") {
-            document.getElementById("timer").textContent = msg.seconds_left + " s";
-        }
+    function updateRound() {
+        var r = document.getElementById("round");
+        if (r) r.textContent = currentRound + " / " + totalRounds;
+    }
 
-        if (msg.type === "score_update") {
-            document.getElementById("redScore").textContent = msg.red;
-            document.getElementById("blueScore").textContent = msg.blue;
-        }
-
-        if (msg.type === "warnings") {
-            document.getElementById("redWarnings").textContent = msg.red;
-            document.getElementById("blueWarnings").textContent = msg.blue;
-        }
-    };
+    /* ================= ACTIONS ================= */
 
     function fight(action) {
         ws.send(JSON.stringify({
             Type: "fight_control",
             Data: { Action: action }
         }));
-        log("→ fight_control: " + action);
     }
 
     function resetFight() {
         ws.send(JSON.stringify({ Type: "reset" }));
-        log("→ reset");
     }
 
-    function score(judge, fighter, points) {
+    function applySettings() {
+        ws.send(JSON.stringify({
+            Type: "fight_settings",
+            Data: {
+                rounds: Number(document.getElementById("setRounds").value),
+                round_duration: Number(document.getElementById("setRoundTime").value),
+                break_duration: Number(document.getElementById("setBreakTime").value)
+            }
+        }));
+    }
+
+    function score(fighter) {
         ws.send(JSON.stringify({
             Type: "score",
             Data: {
-                JudgeID: judge,
                 Fighter: fighter,
-                Points: points
+                Points: 1
             }
         }));
-        log(`→ score ${fighter} +${points}`);
     }
 
-    function warning(fighter) {
-        ws.send(JSON.stringify({
-            Type: "warning",
-            Data: { Fighter: fighter }
-        }));
-        log("→ warning " + fighter);
+    /* ================= UI MODE ================= */
+
+    if (role === "main") {
+        document.getElementById("mainPanel").classList.remove("hidden");
+    } else {
+        document.getElementById("sidePanel").classList.remove("hidden");
     }
+
+    connect();
 </script>
 
 </body>

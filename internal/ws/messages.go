@@ -5,15 +5,19 @@ import "encoding/json"
 type EventType string
 
 const (
-	EventFightControl EventType = "fight_control"
-	EventScore        EventType = "score"
+	EventFightControl  EventType = "fight_control"
+	EventFightSettings EventType = "fight_settings"
+	EventScore         EventType = "score"
+	EventWarning       EventType = "warning"
+	EventReset         EventType = "reset"
 )
 
-type ScorePayload struct {
-	JudgeID int    `json:"JudgeID"`
-	Fighter string `json:"Fighter"` // "red" | "blue"
-	Points  int    `json:"Points"`  // 1 | 2 | 3
+type Event struct {
+	Type EventType       `json:"Type"`
+	Data json.RawMessage `json:"Data"`
 }
+
+/* ===== fight control ===== */
 
 type FightAction string
 
@@ -24,23 +28,27 @@ const (
 	ActionStop   FightAction = "stop"
 )
 
-type Event struct {
-	Type EventType       `json:"Type"`
-	Data json.RawMessage `json:"Data"`
-}
-
 type FightControlEvent struct {
 	Action FightAction `json:"Action"`
 }
 
-const (
-	EventWarning EventType = "warning"
-)
+/* ===== settings ===== */
 
-type WarningPayload struct {
-	Fighter string `json:"Fighter"` // "red" | "blue"
+type FightSettingsPayload struct {
+	RoundDuration int `json:"round_duration"` // sec
+	Rounds        int `json:"rounds"`
+	BreakDuration int `json:"break_duration"` // sec
 }
 
-const (
-	EventReset EventType = "reset"
-)
+/* ===== score ===== */
+
+type ScorePayload struct {
+	Fighter string `json:"Fighter"`
+	Points  int    `json:"Points"`
+}
+
+/* ===== warning ===== */
+
+type WarningPayload struct {
+	Fighter string `json:"Fighter"`
+}

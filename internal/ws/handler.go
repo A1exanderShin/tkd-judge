@@ -1,55 +1,83 @@
 package ws
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/websocket"
 )
 
-// Превращает HTTP-запрос в WebSocket
-// CheckOrigin: return true - считается плохим тоном для прода, но при этом нормально в локальной сети
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-type WSHandler struct {
-	hub *Hub
-}
+func NewWSHandler(hub *Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 
-func NewWSHandler(hub *Hub) *WSHandler {
-	return &WSHandler{hub: hub}
-}
+		// --- role ---
+		roleStr := r.URL.Query().Get("role")
 
-func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
+		var role Role
+		switch roleStr {
+		case "main":
+			role = RoleMainJudge
+		default:
+			role = RoleSideJudge
+		}
 
-	client := NewClient(conn)
-	h.hub.register <- client
-	defer func() {
-		h.hub.unregister <- client
-	}()
-
-	for {
-		_, data, err := conn.ReadMessage()
+		// --- upgrade ---
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("ws read error: %v", err)
 			return
 		}
 
-		var event Event
-		if err := json.Unmarshal(data, &event); err != nil {
-			log.Printf("invalid event json: %v", err)
-			continue
+		client := NewClient(conn, role)
+
+		// --- назначение judgeID (ТОЛЬКО для боковых судей) ---
+		if role == RoleSideJudge {
+			judgeParam := r.URL.Query().Get("judge")
+
+			var id int
+			if judgeParam != "" {
+				id, err = strconv.Atoi(judgeParam)
+				if err != nil || id < 1 || id > hub.cfg.JudgesCount {
+					conn.Close()
+					return
+				}
+
+				// если судья уже занят — не пускаем
+				if _, exists := hub.sideJudges[id]; exists {
+					conn.Close()
+					return
+				}
+			} else {
+				id = hub.nextFreeJudgeID()
+				if id == 0 {
+					conn.Close()
+					return
+				}
+			}
+
+			client.judgeID = id
 		}
 
-		h.hub.Publish(event)
+		// --- регистрация клиента ---
+		hub.register <- client
+
+		// --- read loop ---
+		go func() {
+			defer func() {
+				hub.unregister <- client
+				client.close()
+			}()
+
+			for {
+				var msg Event
+				if err := conn.ReadJSON(&msg); err != nil {
+					return
+				}
+				hub.Publish(msg, client)
+			}
+		}()
 	}
 }
