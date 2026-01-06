@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
+
+	"tkd-judge/internal/config"
 )
 
 var upgrader = websocket.Upgrader{
@@ -12,6 +14,8 @@ var upgrader = websocket.Upgrader{
 }
 
 func NewWSHandler(hub *Hub) http.HandlerFunc {
+	cfg := config.Default()
+
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		// --- role ---
@@ -40,7 +44,7 @@ func NewWSHandler(hub *Hub) http.HandlerFunc {
 			var id int
 			if judgeParam != "" {
 				id, err = strconv.Atoi(judgeParam)
-				if err != nil || id < 1 || id > hub.cfg.JudgesCount {
+				if err != nil || id < 1 || id > cfg.JudgesCount {
 					conn.Close()
 					return
 				}
@@ -51,7 +55,7 @@ func NewWSHandler(hub *Hub) http.HandlerFunc {
 					return
 				}
 			} else {
-				id = hub.nextFreeJudgeID()
+				id = nextFreeJudgeID(hub.sideJudges, cfg.JudgesCount)
 				if id == 0 {
 					conn.Close()
 					return
@@ -80,4 +84,14 @@ func NewWSHandler(hub *Hub) http.HandlerFunc {
 			}
 		}()
 	}
+}
+
+// helper: поиск свободного judgeID
+func nextFreeJudgeID(used map[int]*Client, max int) int {
+	for i := 1; i <= max; i++ {
+		if _, ok := used[i]; !ok {
+			return i
+		}
+	}
+	return 0
 }

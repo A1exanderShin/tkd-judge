@@ -4,18 +4,23 @@ import (
 	"log"
 	"net/http"
 
+	"tkd-judge/internal/discipline"
 	"tkd-judge/internal/ws"
 )
 
 func main() {
-	// центральный хаб
-	hub := ws.NewHub()
+	// 1. Выбор дисциплины (composition root)
+	// Сейчас используем бой
+	d := discipline.NewFightDiscipline()
+
+	// 2. Центральный хаб
+	hub := ws.NewHub(d)
 	go hub.Run()
 
-	// WebSocket
+	// 3. WebSocket endpoint
 	http.Handle("/ws", ws.NewWSHandler(hub))
 
-	// UI (ВАЖНО)
+	// 4. UI (статические файлы)
 	http.Handle(
 		"/ui/",
 		http.StripPrefix(

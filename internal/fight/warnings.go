@@ -33,3 +33,10 @@ func (w *WarningCounter) Add(fighter events.Fighter) (penalty bool) {
 func (w *WarningCounter) Count() (red, blue int) {
 	return w.red, w.blue
 }
+
+func (w *WarningCounter) Snapshot() map[string]int {
+	return map[string]int{
+		"red":  w.red,
+		"blue": w.blue,
+	}
+}
