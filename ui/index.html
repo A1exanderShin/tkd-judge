@@ -17,9 +17,18 @@
             border-radius: 6px;
         }
         button {
-            padding: 12px 18px;
-            margin: 6px;
-            font-size: 16px;
+            padding: 8px 14px;
+            margin: 4px;
+            font-size: 14px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        td, th {
+            border: 1px solid #ccc;
+            padding: 6px;
+            text-align: center;
         }
         .red { color: darkred; }
         .blue { color: darkblue; }
@@ -29,6 +38,13 @@
         }
         .hidden { display: none; }
         .center { text-align: center; }
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .badge-round { background: #d4edda; }
+        .badge-break { background: #fff3cd; }
     </style>
 </head>
 
@@ -41,6 +57,7 @@
 
     <div>
         <b>State:</b> <span id="state">—</span><br>
+        <b>Phase:</b> <span id="phase">—</span><br>
         <b>Round:</b> <span id="round">—</span>
     </div>
 
@@ -48,32 +65,54 @@
 
     <hr>
 
-    <div>
-        <h3>Score</h3>
-        <h2>
-            <span class="red" id="redScore">0</span>
-            :
-            <span class="blue" id="blueScore">0</span>
-        </h2>
-    </div>
+    <h3>Score</h3>
+    <h2>
+        <span class="red" id="redScore">0</span>
+        :
+        <span class="blue" id="blueScore">0</span>
+    </h2>
 
     <hr>
 
-    <button onclick="fight('start')">Start</button>
-    <button onclick="fight('pause')">Pause</button>
-    <button onclick="fight('stop')">Stop</button>
-    <button onclick="resetFight()">Reset</button>
+    <h3>Warnings</h3>
+    <button onclick="warn('red')" class="red">⚠ Red</button>
+    <button onclick="warn('blue')" class="blue">⚠ Blue</button><br><br>
+    Red: <span id="warnRed">0</span>,
+    Blue: <span id="warnBlue">0</span>
 
     <hr>
 
-    <h3>Settings (before fight)</h3>
+    <h3>Judges</h3>
+    <table>
+        <thead>
+        <tr>
+            <th>Judge</th>
+            <th>Red</th>
+            <th>Blue</th>
+        </tr>
+        </thead>
+        <tbody id="judgesTable">
+        <tr><td colspan="3">No data</td></tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <button onclick="send('FIGHT_START')">Start</button>
+    <button onclick="send('FIGHT_PAUSE')">Pause</button>
+    <button onclick="send('FIGHT_STOP')">Stop</button>
+    <button onclick="send('FIGHT_RESET')">Reset</button>
+
+    <hr>
+
+    <h3>Settings</h3>
 
     <label>Rounds:
         <input type="number" id="setRounds" min="1" value="1">
     </label><br><br>
 
     <label>Round duration (sec):
-        <input type="number" id="setRoundTime" min="5" value="60">
+        <input type="number" id="setRoundTime" min="10" value="120">
     </label><br><br>
 
     <label>Break duration (sec):
@@ -100,130 +139,113 @@
 </div>
 
 <script>
-    /* ================= INIT ================= */
+    const qs = new URLSearchParams(location.search);
+    const role = qs.get("role") || "side";
+    const judge = qs.get("judge");
 
-    var qs = new URLSearchParams(location.search);
-    var role = qs.get("role") || "side";
-    var judge = qs.get("judge");
-
-    var ws;
-    var myJudgeID = null;
-
-    var currentRound = 1;
-    var totalRounds = 1;
-
-    /* ================= CONNECT ================= */
+    let ws;
+    let myJudgeID = judge ? Number(judge) : null;
 
     function connect() {
-        var url = "ws://" + location.host + "/ws?role=" + role;
+        let url = "ws://" + location.host + "/ws?role=" + role;
         if (judge) url += "&judge=" + judge;
 
         ws = new WebSocket(url);
-
-        ws.onmessage = function (e) {
-            handle(JSON.parse(e.data));
-        };
+        ws.onmessage = e => handle(JSON.parse(e.data));
     }
 
-    /* ================= HANDLER ================= */
-
     function handle(msg) {
-        switch (msg.type) {
+        if (msg.type === "snapshot") {
+            renderSnapshot(msg.data);
+        }
 
-            case "state": {
-                var el = document.getElementById("state");
-                if (el) el.textContent = msg.state;
-                updateRound();
-                break;
-            }
-
-            case "timer": {
-                var t = document.getElementById("timer");
-                if (t) t.textContent = msg.seconds_left + "s (" + msg.mode + ")";
-                break;
-            }
-
-            case "fight_settings": {
-                currentRound = msg.round;
-                totalRounds = msg.rounds_total;
-                updateRound();
-                break;
-            }
-
-            case "score_update": {
-                var r = document.getElementById("redScore");
-                var b = document.getElementById("blueScore");
-                if (r) r.textContent = msg.red;
-                if (b) b.textContent = msg.blue;
-                break;
-            }
-
-            case "judge_id": {
-                myJudgeID = msg.judgeID;
-                var jid = document.getElementById("judgeID");
-                if (jid) jid.textContent = myJudgeID;
-                break;
-            }
-
-            case "judge_scores": {
-                if (!myJudgeID) return;
-                for (var i = 0; i < msg.scores.length; i++) {
-                    var row = msg.scores[i];
-                    if (row.id === myJudgeID) {
-                        document.getElementById("myRed").textContent = row.red;
-                        document.getElementById("myBlue").textContent = row.blue;
-                    }
-                }
-                break;
-            }
+        if (msg.type === "timer") {
+            renderTimer(msg.data);
         }
     }
 
-    function updateRound() {
-        var r = document.getElementById("round");
-        if (r) r.textContent = currentRound + " / " + totalRounds;
+    function renderSnapshot(d) {
+        document.getElementById("state").textContent = d.state;
+        document.getElementById("round").textContent = d.round + " / " + d.rounds;
+
+        document.getElementById("redScore").textContent = d.red;
+        document.getElementById("blueScore").textContent = d.blue;
+
+        document.getElementById("warnRed").textContent = d.warnings.red;
+        document.getElementById("warnBlue").textContent = d.warnings.blue;
+
+        renderJudges(d.judges);
     }
 
-    /* ================= ACTIONS ================= */
+    function renderTimer(t) {
+        const timer = document.getElementById("timer");
+        const phase = document.getElementById("phase");
 
-    function fight(action) {
-        ws.send(JSON.stringify({
-            Type: "fight_control",
-            Data: { Action: action }
-        }));
+        timer.textContent = t.seconds + " s";
+
+        if (t.mode === "round") {
+            phase.innerHTML = '<span class="badge badge-round">ROUND</span>';
+        } else if (t.mode === "break") {
+            phase.innerHTML = '<span class="badge badge-break">BREAK</span>';
+        } else {
+            phase.textContent = "—";
+        }
     }
 
-    function resetFight() {
-        ws.send(JSON.stringify({ Type: "reset" }));
-    }
+    function renderJudges(judges) {
+        const body = document.getElementById("judgesTable");
+        body.innerHTML = "";
 
-    function applySettings() {
-        ws.send(JSON.stringify({
-            Type: "fight_settings",
-            Data: {
-                rounds: Number(document.getElementById("setRounds").value),
-                round_duration: Number(document.getElementById("setRoundTime").value),
-                break_duration: Number(document.getElementById("setBreakTime").value)
+        if (!judges || judges.length === 0) {
+            body.innerHTML = "<tr><td colspan='3'>No judges</td></tr>";
+            return;
+        }
+
+        judges.forEach(j => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${j.id}</td><td>${j.red}</td><td>${j.blue}</td>`;
+            body.appendChild(tr);
+
+            if (j.id === myJudgeID) {
+                document.getElementById("myRed").textContent = j.red;
+                document.getElementById("myBlue").textContent = j.blue;
             }
-        }));
+        });
+    }
+
+    function send(type) {
+        ws.send(JSON.stringify({ type }));
     }
 
     function score(fighter) {
         ws.send(JSON.stringify({
-            Type: "score",
-            Data: {
-                Fighter: fighter,
-                Points: 1
-            }
+            type: "FIGHT_SCORE",
+            fighter,
+            points: 1
         }));
     }
 
-    /* ================= UI MODE ================= */
+    function warn(fighter) {
+        ws.send(JSON.stringify({
+            type: "FIGHT_WARNING",
+            fighter
+        }));
+    }
+
+    function applySettings() {
+        ws.send(JSON.stringify({
+            type: "FIGHT_SETTINGS",
+            rounds: Number(setRounds.value),
+            round_duration: Number(setRoundTime.value),
+            break_duration: Number(setBreakTime.value)
+        }));
+    }
 
     if (role === "main") {
         document.getElementById("mainPanel").classList.remove("hidden");
     } else {
         document.getElementById("sidePanel").classList.remove("hidden");
+        document.getElementById("judgeID").textContent = myJudgeID;
     }
 
     connect();

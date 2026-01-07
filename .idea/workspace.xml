@@ -5,20 +5,21 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="27f7ec13-65ee-4522-a068-7e2ffb5cfe3f" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/tkd-judge.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/tkd-judge.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/server/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/server/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/discipline/discipline.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/discipline/discipline.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/discipline/fight_discipline.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/discipline/fight_discipline.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/discipline/fight_events.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/discipline/fight_events.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/fight/fight.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/fight/fight.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/fight/scoreboard.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/fight/scoreboard.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/fight/timer.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/fight/timer.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/fight/warnings.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/fight/warnings.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/internal/ws/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/ws/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/http/protocol_handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/http/protocol_handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/http/protocol_pdf_handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/http/protocol_pdf_handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/judges/judges.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/judges/judges.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/ws/handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/ws/handler.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/ws/hub.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/ws/hub.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/ws/messages.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/ws/messages.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/ui/index.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -29,33 +30,33 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "customColor": "",
-  "associatedIndex": 6
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 6
+}</component>
   <component name="ProjectId" id="37mjZ6hXR1bT8cdwGDrl5j15kUm" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "git-widget-placeholder": "main",
-    "go.import.settings.migrated": "true",
-    "go.sdk.automatically.set": "true",
-    "last_opened_file_path": "C:/Users/alexa/go_projects/tkd-judge",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/alexa/go_projects/tkd-judge&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>

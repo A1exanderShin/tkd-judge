@@ -18,7 +18,11 @@ type FightDiscipline struct {
 
 	roundTimer *fight.Timer
 	breakTimer *fight.Timer
+
+	realtime chan RealtimeEvent
 }
+
+/* ================= CONSTRUCTOR ================= */
 
 func NewFightDiscipline() *FightDiscipline {
 	cfg := config.Default()
@@ -28,10 +32,19 @@ func NewFightDiscipline() *FightDiscipline {
 		fight:      fight.NewFight(),
 		scoreboard: fight.NewScoreboard(),
 		warnings:   fight.NewWarningCounter(cfg.WarningsForPenalty),
+		realtime:   make(chan RealtimeEvent, 8),
 	}
 
 	fd.roundTimer = fight.NewTimer(cfg.RoundDuration)
 	fd.breakTimer = fight.NewTimer(30 * time.Second)
+
+	// realtime timer events
+	fd.roundTimer.OnTick(func(rem time.Duration) {
+		fd.emitTimer("round", rem)
+	})
+	fd.breakTimer.OnTick(func(rem time.Duration) {
+		fd.emitTimer("break", rem)
+	})
 
 	fd.roundTimer.OnFinished(fd.onRoundFinished)
 	fd.breakTimer.OnFinished(fd.onBreakFinished)
@@ -39,10 +52,23 @@ func NewFightDiscipline() *FightDiscipline {
 	return fd
 }
 
+/* ================= DISCIPLINE INTERFACE ================= */
+
 func (fd *FightDiscipline) HandleEvent(event any) error {
 	e, ok := event.(FightEvent)
 	if !ok {
 		return nil
+	}
+
+	// RESET — вне FSM
+	if e.Type == EventFightReset {
+		fd.Reset()
+		return nil
+	}
+
+	// SETTINGS — вне FSM
+	if e.Type == EventFightSettings {
+		return fd.applySettings(e)
 	}
 
 	switch fd.fight.State() {
@@ -65,6 +91,59 @@ func (fd *FightDiscipline) HandleEvent(event any) error {
 
 	return nil
 }
+
+func (fd *FightDiscipline) Snapshot() map[string]any {
+	red, blue := fd.scoreboard.Score()
+
+	return map[string]any{
+		"type":     "fight",
+		"state":    fd.fight.State().String(),
+		"round":    fd.fight.CurrentRound(),
+		"rounds":   fd.fight.TotalRounds(),
+		"red":      red,
+		"blue":     blue,
+		"warnings": fd.warnings.Snapshot(),
+		"judges":   fd.scoreboard.JudgesSnapshot(), // 🔥 ВОТ ЭТО
+	}
+}
+
+func (fd *FightDiscipline) Reset() {
+	fd.roundTimer.Stop()
+	fd.breakTimer.Stop()
+
+	fd.fight = fight.NewFight()
+	fd.scoreboard = fight.NewScoreboard()
+	fd.warnings = fight.NewWarningCounter(fd.cfg.WarningsForPenalty)
+}
+
+func (fd *FightDiscipline) Realtime() <-chan RealtimeEvent {
+	return fd.realtime
+}
+
+/* ================= SETTINGS ================= */
+
+func (fd *FightDiscipline) applySettings(e FightEvent) error {
+	// запрещаем менять настройки во время боя
+	if fd.fight.State() == fight.StateRunning {
+		return nil
+	}
+
+	if e.Rounds > 0 {
+		fd.fight.SetRounds(e.Rounds)
+	}
+
+	if e.RoundDuration > 0 {
+		fd.roundTimer.SetDuration(time.Duration(e.RoundDuration) * time.Second)
+	}
+
+	if e.BreakDuration > 0 {
+		fd.breakTimer.SetDuration(time.Duration(e.BreakDuration) * time.Second)
+	}
+
+	return nil
+}
+
+/* ================= FSM ================= */
 
 func (fd *FightDiscipline) handleIdle(e FightEvent) error {
 	if e.Type == EventFightStart {
@@ -96,6 +175,15 @@ func (fd *FightDiscipline) handleRunning(e FightEvent) error {
 			Time:    time.Now(),
 		}
 		fd.scoreboard.Apply(ev)
+
+	case EventFightWarning:
+		penalty := fd.warnings.Add(e.Fighter)
+		if penalty {
+			fd.scoreboard.ApplyPenalty(
+				e.Fighter,
+				fd.cfg.PenaltyPoints,
+			)
+		}
 	}
 
 	return nil
@@ -104,6 +192,7 @@ func (fd *FightDiscipline) handleRunning(e FightEvent) error {
 func (fd *FightDiscipline) handlePaused(e FightEvent) error {
 	if e.Type == EventFightStart {
 		fd.fight.Start()
+		fd.roundTimer.Reset() // 🔥 ВАЖНО
 		fd.roundTimer.Start()
 	}
 	return nil
@@ -118,6 +207,8 @@ func (fd *FightDiscipline) handleBreak(e FightEvent) error {
 	}
 	return nil
 }
+
+/* ================= TIMERS ================= */
 
 func (fd *FightDiscipline) onRoundFinished() {
 	if fd.fight.CurrentRound() < fd.fight.TotalRounds() {
@@ -134,25 +225,18 @@ func (fd *FightDiscipline) onBreakFinished() {
 	fd.fight.SetState(fight.StatePaused)
 }
 
-func (fd *FightDiscipline) Snapshot() map[string]any {
-	red, blue := fd.scoreboard.Score()
+/* ================= REALTIME ================= */
 
-	return map[string]any{
-		"type":     "fight",
-		"state":    fd.fight.State().String(),
-		"round":    fd.fight.CurrentRound(),
-		"rounds":   fd.fight.TotalRounds(),
-		"red":      red,
-		"blue":     blue,
-		"warnings": fd.warnings.Snapshot(),
+func (fd *FightDiscipline) emitTimer(mode string, rem time.Duration) {
+	select {
+	case fd.realtime <- RealtimeEvent{
+		Type: "timer",
+		Data: map[string]any{
+			"mode":    mode,
+			"seconds": int(rem.Seconds()),
+		},
+	}:
+	default:
+		// не блокируем таймер
 	}
-}
-
-func (fd *FightDiscipline) Reset() {
-	fd.roundTimer.Stop()
-	fd.breakTimer.Stop()
-
-	fd.fight = fight.NewFight()
-	fd.scoreboard = fight.NewScoreboard()
-	fd.warnings = fight.NewWarningCounter(fd.cfg.WarningsForPenalty)
 }

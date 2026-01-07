@@ -9,23 +9,23 @@ type WarningCounter struct {
 }
 
 func NewWarningCounter(limit int) *WarningCounter {
+	if limit <= 0 {
+		limit = 1
+	}
 	return &WarningCounter{limit: limit}
 }
 
-// добавляет штрафы
+// Add добавляет предупреждение.
+// Возвращает true, если нужно применить штраф.
 func (w *WarningCounter) Add(fighter events.Fighter) (penalty bool) {
 	switch fighter {
-	// проверка кратности, каждое 3-е предупреждение = штраф
 	case events.FighterRed:
 		w.red++
-		if w.red%w.limit == 0 {
-			return true
-		}
+		return w.red%w.limit == 0
+
 	case events.FighterBlue:
 		w.blue++
-		if w.blue%w.limit == 0 {
-			return true
-		}
+		return w.blue%w.limit == 0
 	}
 	return false
 }
@@ -39,4 +39,9 @@ func (w *WarningCounter) Snapshot() map[string]int {
 		"red":  w.red,
 		"blue": w.blue,
 	}
+}
+
+func (w *WarningCounter) Reset() {
+	w.red = 0
+	w.blue = 0
 }

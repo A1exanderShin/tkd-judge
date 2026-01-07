@@ -15,7 +15,6 @@ func NewTimer(d time.Duration) *Timer {
 	return &Timer{
 		duration:  d,
 		remaining: d,
-		stop:      make(chan struct{}),
 	}
 }
 
@@ -29,6 +28,7 @@ func (t *Timer) Start() {
 		return
 	}
 
+	t.stop = make(chan struct{})
 	t.ticker = time.NewTicker(time.Second)
 
 	go func() {
@@ -36,16 +36,19 @@ func (t *Timer) Start() {
 			select {
 			case <-t.ticker.C:
 				t.remaining -= time.Second
+
 				if t.onTick != nil {
 					t.onTick(t.remaining)
 				}
+
 				if t.remaining <= 0 {
-					t.Stop()
+					t.stopInternal()
 					if t.onFinished != nil {
 						t.onFinished()
 					}
 					return
 				}
+
 			case <-t.stop:
 				return
 			}
@@ -53,11 +56,19 @@ func (t *Timer) Start() {
 	}()
 }
 
-func (t *Timer) Stop() {
+func (t *Timer) stopInternal() {
 	if t.ticker != nil {
 		t.ticker.Stop()
 		t.ticker = nil
 	}
+	close(t.stop)
+}
+
+func (t *Timer) Stop() {
+	if t.ticker == nil {
+		return
+	}
+	t.stopInternal()
 }
 
 func (t *Timer) Reset() {

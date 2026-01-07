@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -76,11 +77,17 @@ func NewWSHandler(hub *Hub) http.HandlerFunc {
 			}()
 
 			for {
-				var msg Event
-				if err := conn.ReadJSON(&msg); err != nil {
+				var raw json.RawMessage
+				if err := conn.ReadJSON(&raw); err != nil {
 					return
 				}
-				hub.Publish(msg, client)
+
+				disciplineEvent, err := ParseMessage(raw, client)
+				if err != nil {
+					continue // неизвестное или некорректное событие
+				}
+
+				hub.Publish(disciplineEvent, client)
 			}
 		}()
 	}

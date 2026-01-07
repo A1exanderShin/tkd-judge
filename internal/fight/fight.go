@@ -37,6 +37,9 @@ func (f *Fight) Pause() {
 }
 
 func (f *Fight) Stop() {
+	if f.state == StateFinished {
+		return
+	}
 	f.state = StateFinished
 }
 
@@ -57,5 +60,7 @@ func (f *Fight) TotalRounds() int {
 }
 
 func (f *Fight) NextRound() {
-	f.currentRound++
+	if f.currentRound < f.totalRounds {
+		f.currentRound++
+	}
 }

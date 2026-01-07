@@ -47,6 +47,9 @@ func (h *Hub) Publish(e any, c *Client) {
 }
 
 func (h *Hub) Run() {
+	// 🔥 подписка на realtime события дисциплины
+	go h.listenRealtime()
+
 	for {
 		select {
 
@@ -58,6 +61,19 @@ func (h *Hub) Run() {
 
 		case c := <-h.unregister:
 			h.handleUnregister(c)
+		}
+	}
+}
+
+/* ================= REALTIME ================= */
+
+func (h *Hub) listenRealtime() {
+	for ev := range h.discipline.Realtime() {
+		for c := range h.clients {
+			c.send(map[string]any{
+				"type": ev.Type,
+				"data": ev.Data,
+			})
 		}
 	}
 }
@@ -75,6 +91,7 @@ func (h *Hub) handleEvent(event any, c *Client) {
 		return
 	}
 
+	// snapshot шлём ТОЛЬКО после доменных изменений
 	h.broadcastSnapshot()
 }
 
@@ -93,9 +110,17 @@ func (h *Hub) handleRegister(c *Client) {
 	if c.role == RoleSideJudge {
 		h.sideJudges[c.judgeID] = c
 		log.Printf("SIDE JUDGE %d CONNECTED", c.judgeID)
+
+		// отправляем judge_id один раз
+		c.send(map[string]any{
+			"type":    "judge_id",
+			"judgeID": c.judgeID,
+		})
 	}
 
 	h.clients[c] = struct{}{}
+
+	// при подключении сразу шлём snapshot
 	h.sendSnapshotTo(c)
 }
 
@@ -114,25 +139,30 @@ func (h *Hub) handleUnregister(c *Client) {
 /* ================= ACCESS CONTROL ================= */
 
 func (h *Hub) canSendEvent(c *Client) bool {
-	if c.role == RoleMainJudge {
+	switch c.role {
+	case RoleMainJudge, RoleSideJudge:
 		return true
+	default:
+		return false
 	}
-	if c.role == RoleSideJudge {
-		return true
-	}
-	return false
 }
 
-/* ================= BROADCAST ================= */
+/* ================= SNAPSHOT ================= */
 
 func (h *Hub) broadcastSnapshot() {
-	snapshot := h.discipline.Snapshot()
+	payload := map[string]any{
+		"type": "snapshot",
+		"data": h.discipline.Snapshot(),
+	}
 
 	for c := range h.clients {
-		c.send(snapshot)
+		c.send(payload)
 	}
 }
 
 func (h *Hub) sendSnapshotTo(c *Client) {
-	c.send(h.discipline.Snapshot())
+	c.send(map[string]any{
+		"type": "snapshot",
+		"data": h.discipline.Snapshot(),
+	})
 }
