@@ -12,7 +12,11 @@ type hubEvent struct {
 }
 
 type Hub struct {
-	discipline discipline.Discipline
+	router *discipline.Router
+
+	// доступные дисциплины
+	fight   discipline.Discipline
+	pattern discipline.Discipline
 
 	events chan hubEvent
 
@@ -26,9 +30,15 @@ type Hub struct {
 
 /* ================= CONSTRUCTOR ================= */
 
-func NewHub(d discipline.Discipline) *Hub {
+func NewHub(
+	router *discipline.Router,
+	fight discipline.Discipline,
+	pattern discipline.Discipline,
+) *Hub {
 	return &Hub{
-		discipline: d,
+		router:  router,
+		fight:   fight,
+		pattern: pattern,
 
 		events: make(chan hubEvent, 16),
 
@@ -47,7 +57,6 @@ func (h *Hub) Publish(e any, c *Client) {
 }
 
 func (h *Hub) Run() {
-	// 🔥 подписка на realtime события дисциплины
 	go h.listenRealtime()
 
 	for {
@@ -68,7 +77,7 @@ func (h *Hub) Run() {
 /* ================= REALTIME ================= */
 
 func (h *Hub) listenRealtime() {
-	for ev := range h.discipline.Realtime() {
+	for ev := range h.router.Realtime() {
 		for c := range h.clients {
 			c.send(map[string]any{
 				"type": ev.Type,
@@ -81,17 +90,39 @@ func (h *Hub) listenRealtime() {
 /* ================= EVENT ROUTER ================= */
 
 func (h *Hub) handleEvent(event any, c *Client) {
-	// роль-фильтр
+
+	// 🔒 системные события
+	if sys, ok := event.(SystemEvent); ok {
+		if c.role != RoleMainJudge {
+			return
+		}
+
+		switch sys.Type {
+
+		case EventSwitchDiscipline:
+			switch h.router.Snapshot()["type"] {
+			case "fight":
+				h.router.Switch(h.pattern)
+			default:
+				h.router.Switch(h.fight)
+			}
+
+			h.broadcastSnapshot()
+		}
+
+		return
+	}
+
+	// 🔹 доменные события
 	if !h.canSendEvent(c) {
 		return
 	}
 
-	if err := h.discipline.HandleEvent(event); err != nil {
+	if err := h.router.HandleEvent(event); err != nil {
 		log.Println("discipline error:", err)
 		return
 	}
 
-	// snapshot шлём ТОЛЬКО после доменных изменений
 	h.broadcastSnapshot()
 }
 
@@ -120,7 +151,6 @@ func (h *Hub) handleRegister(c *Client) {
 
 	h.clients[c] = struct{}{}
 
-	// при подключении сразу шлём snapshot
 	h.sendSnapshotTo(c)
 }
 
@@ -152,7 +182,7 @@ func (h *Hub) canSendEvent(c *Client) bool {
 func (h *Hub) broadcastSnapshot() {
 	payload := map[string]any{
 		"type": "snapshot",
-		"data": h.discipline.Snapshot(),
+		"data": h.router.Snapshot(),
 	}
 
 	for c := range h.clients {
@@ -163,6 +193,6 @@ func (h *Hub) broadcastSnapshot() {
 func (h *Hub) sendSnapshotTo(c *Client) {
 	c.send(map[string]any{
 		"type": "snapshot",
-		"data": h.discipline.Snapshot(),
+		"data": h.router.Snapshot(),
 	})
 }

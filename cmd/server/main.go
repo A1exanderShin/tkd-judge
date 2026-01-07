@@ -9,18 +9,42 @@ import (
 )
 
 func main() {
-	// 1. Выбор дисциплины (composition root)
-	// Сейчас используем бой
-	d := discipline.NewFightDiscipline()
 
-	// 2. Центральный хаб
-	hub := ws.NewHub(d)
+	// ===== DISCIPLINES =====
+
+	fight := discipline.NewFightDiscipline()
+
+	pattern := discipline.NewPatternDiscipline(
+		[]string{
+			"technique",
+			"balance",
+			"power",
+			"rhythm",
+			"expression",
+		},
+		5, // количество судей
+	)
+
+	// ===== ROUTER =====
+
+	router := discipline.NewRouter(fight)
+
+	// ===== HUB =====
+
+	hub := ws.NewHub(
+		router,
+		fight,
+		pattern,
+	)
+
 	go hub.Run()
 
-	// 3. WebSocket endpoint
+	// ===== WEBSOCKET =====
+
 	http.Handle("/ws", ws.NewWSHandler(hub))
 
-	// 4. UI (статические файлы)
+	// ===== UI =====
+
 	http.Handle(
 		"/ui/",
 		http.StripPrefix(

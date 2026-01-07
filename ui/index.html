@@ -52,7 +52,7 @@
 
 <h2>TKD Judge</h2>
 
-<!-- ================= MAIN JUDGE ================= -->
+<!-- ================= FIGHT MAIN JUDGE ================= -->
 <div id="mainPanel" class="panel hidden">
 
     <div>
@@ -102,27 +102,10 @@
     <button onclick="send('FIGHT_PAUSE')">Pause</button>
     <button onclick="send('FIGHT_STOP')">Stop</button>
     <button onclick="send('FIGHT_RESET')">Reset</button>
-
-    <hr>
-
-    <h3>Settings</h3>
-
-    <label>Rounds:
-        <input type="number" id="setRounds" min="1" value="1">
-    </label><br><br>
-
-    <label>Round duration (sec):
-        <input type="number" id="setRoundTime" min="10" value="120">
-    </label><br><br>
-
-    <label>Break duration (sec):
-        <input type="number" id="setBreakTime" min="5" value="30">
-    </label><br><br>
-
-    <button onclick="applySettings()">Apply settings</button>
+    <button onclick="send('SWITCH_DISCIPLINE')">Switch discipline</button>
 </div>
 
-<!-- ================= SIDE JUDGE ================= -->
+<!-- ================= FIGHT SIDE JUDGE ================= -->
 <div id="sidePanel" class="panel hidden center">
 
     <h3>Side judge</h3>
@@ -138,6 +121,42 @@
     <button onclick="score('blue')" class="blue">+1 Blue</button>
 </div>
 
+<!-- ================= PATTERN MAIN JUDGE ================= -->
+<div id="patternMainPanel" class="panel hidden">
+
+    <h3>Pattern discipline</h3>
+
+    <div>
+        <b>State:</b> <span id="pState">—</span><br>
+        <b>Stage:</b> <span id="pStage">—</span><br>
+        <b>Exercise:</b> <span id="pExercise">—</span>
+    </div>
+
+    <hr>
+
+    <input id="exerciseInput" placeholder="Exercise name">
+    <button onclick="selectExercise()">Select exercise</button>
+
+    <hr>
+
+    <h3>Total score: <span id="pTotal">0</span></h3>
+
+    <button onclick="nextStage()">Next stage</button>
+    <button onclick="finishPattern()">Finish</button>
+    <button onclick="send('SWITCH_DISCIPLINE')">Switch discipline</button>
+</div>
+
+<!-- ================= PATTERN SIDE JUDGE ================= -->
+<div id="patternSidePanel" class="panel hidden center">
+
+    <h3>Pattern – Side judge</h3>
+    <div>Judge: <b id="pJudgeID">—</b></div>
+
+    <hr>
+
+    <div id="criteriaPanel"></div>
+</div>
+
 <script>
     const qs = new URLSearchParams(location.search);
     const role = qs.get("role") || "side";
@@ -145,6 +164,8 @@
 
     let ws;
     let myJudgeID = judge ? Number(judge) : null;
+
+    const criteria = ["technique","balance","power","rhythm","expression"];
 
     function connect() {
         let url = "ws://" + location.host + "/ws?role=" + role;
@@ -158,94 +179,122 @@
         if (msg.type === "snapshot") {
             renderSnapshot(msg.data);
         }
-
         if (msg.type === "timer") {
             renderTimer(msg.data);
         }
     }
 
     function renderSnapshot(d) {
-        document.getElementById("state").textContent = d.state;
-        document.getElementById("round").textContent = d.round + " / " + d.rounds;
+        if (d.type === "fight") {
+            mainPanel.classList.toggle("hidden", role !== "main");
+            sidePanel.classList.toggle("hidden", role === "main");
+            patternMainPanel.classList.add("hidden");
+            patternSidePanel.classList.add("hidden");
 
-        document.getElementById("redScore").textContent = d.red;
-        document.getElementById("blueScore").textContent = d.blue;
-
-        document.getElementById("warnRed").textContent = d.warnings.red;
-        document.getElementById("warnBlue").textContent = d.warnings.blue;
-
-        renderJudges(d.judges);
-    }
-
-    function renderTimer(t) {
-        const timer = document.getElementById("timer");
-        const phase = document.getElementById("phase");
-
-        timer.textContent = t.seconds + " s";
-
-        if (t.mode === "round") {
-            phase.innerHTML = '<span class="badge badge-round">ROUND</span>';
-        } else if (t.mode === "break") {
-            phase.innerHTML = '<span class="badge badge-break">BREAK</span>';
-        } else {
-            phase.textContent = "—";
-        }
-    }
-
-    function renderJudges(judges) {
-        const body = document.getElementById("judgesTable");
-        body.innerHTML = "";
-
-        if (!judges || judges.length === 0) {
-            body.innerHTML = "<tr><td colspan='3'>No judges</td></tr>";
+            renderFight(d);
             return;
         }
 
-        judges.forEach(j => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${j.id}</td><td>${j.red}</td><td>${j.blue}</td>`;
-            body.appendChild(tr);
+        if (d.type === "pattern") {
+            mainPanel.classList.add("hidden");
+            sidePanel.classList.add("hidden");
 
-            if (j.id === myJudgeID) {
-                document.getElementById("myRed").textContent = j.red;
-                document.getElementById("myBlue").textContent = j.blue;
+            if (role === "main") {
+                patternMainPanel.classList.remove("hidden");
+            } else {
+                patternSidePanel.classList.remove("hidden");
+                renderCriteria();
+                pJudgeID.textContent = myJudgeID;
             }
+            renderPattern(d);
+        }
+    }
+
+    /* ================= FIGHT ================= */
+
+    function renderFight(d) {
+        state.textContent = d.state;
+        round.textContent = d.round + " / " + d.rounds;
+        redScore.textContent = d.red;
+        blueScore.textContent = d.blue;
+        warnRed.textContent = d.warnings.red;
+        warnBlue.textContent = d.warnings.blue;
+    }
+
+    function renderTimer(t) {
+        timer.textContent = t.seconds + " s";
+        phase.innerHTML = t.mode === "round"
+            ? '<span class="badge badge-round">ROUND</span>'
+            : t.mode === "break"
+                ? '<span class="badge badge-break">BREAK</span>'
+                : "—";
+    }
+
+    /* ================= PATTERN ================= */
+
+    function renderPattern(d) {
+        pState.textContent = d.state;
+        pStage.textContent = d.stage;
+        pExercise.textContent = d.exercise || "—";
+        pTotal.textContent = d.total || 0;
+    }
+
+    function renderCriteria() {
+        criteriaPanel.innerHTML = "";
+        criteria.forEach(c => {
+            const div = document.createElement("div");
+            div.innerHTML = `<b>${c}</b><br>` +
+                [0,2,4,6,8,10].map(v =>
+                    `<button onclick="judgeScore('${c}',${v})">${v}</button>`
+                ).join("") +
+                "<hr>";
+            criteriaPanel.appendChild(div);
         });
     }
+
+    /* ================= ACTIONS ================= */
 
     function send(type) {
         ws.send(JSON.stringify({ type }));
     }
 
     function score(fighter) {
-        ws.send(JSON.stringify({
-            type: "FIGHT_SCORE",
-            fighter,
-            points: 1
-        }));
+        ws.send(JSON.stringify({ type:"FIGHT_SCORE", fighter, points:1 }));
     }
 
     function warn(fighter) {
+        ws.send(JSON.stringify({ type:"FIGHT_WARNING", fighter }));
+    }
+
+    function selectExercise() {
         ws.send(JSON.stringify({
-            type: "FIGHT_WARNING",
-            fighter
+            type: "PATTERN_SELECT_EXERCISE",
+            exercise: exerciseInput.value
         }));
     }
 
-    function applySettings() {
+    function judgeScore(criterion, score) {
         ws.send(JSON.stringify({
-            type: "FIGHT_SETTINGS",
-            rounds: Number(setRounds.value),
-            round_duration: Number(setRoundTime.value),
-            break_duration: Number(setBreakTime.value)
+            type: "PATTERN_JUDGE_SCORE",
+            judgeID: myJudgeID,   // 🔥 ВАЖНО
+            criterion,
+            score
         }));
+    }
+
+    function nextStage() {
+        ws.send(JSON.stringify({ type: "PATTERN_NEXT_STAGE" }));
+    }
+
+    function finishPattern() {
+        ws.send(JSON.stringify({ type: "PATTERN_FINISH" }));
     }
 
     if (role === "main") {
-        document.getElementById("mainPanel").classList.remove("hidden");
+        mainPanel.classList.remove("hidden");
     } else {
-        document.getElementById("sidePanel").classList.remove("hidden");
-        document.getElementById("judgeID").textContent = myJudgeID;
+        sidePanel.classList.remove("hidden");
+        judgeID.textContent = myJudgeID;
     }
 
     connect();

@@ -31,14 +31,14 @@ WS EVENT FORMAT (JSON):
 type IncomingMessage struct {
 	Type string `json:"type"`
 
-	// score
+	// fight
 	Fighter string `json:"fighter,omitempty"`
 	Points  int    `json:"points,omitempty"`
 
-	// settings
-	Rounds        int `json:"rounds,omitempty"`
-	RoundDuration int `json:"round_duration,omitempty"`
-	BreakDuration int `json:"break_duration,omitempty"`
+	// pattern
+	Exercise  string `json:"exercise,omitempty"`
+	Criterion string `json:"criterion,omitempty"`
+	Score     int    `json:"score,omitempty"`
 }
 
 /* ================= PARSER ================= */
@@ -50,6 +50,8 @@ func ParseMessage(raw json.RawMessage, c *Client) (any, error) {
 	}
 
 	switch msg.Type {
+
+	// ================= FIGHT =================
 
 	case "FIGHT_START":
 		return discipline.FightEvent{Type: discipline.EventFightStart}, nil
@@ -67,29 +69,45 @@ func ParseMessage(raw json.RawMessage, c *Client) (any, error) {
 		if c.judgeID == 0 {
 			return nil, nil
 		}
-
-		f := events.Fighter(msg.Fighter)
-		if f != events.FighterRed && f != events.FighterBlue {
-			return nil, nil
-		}
-
 		return discipline.FightEvent{
 			Type:    discipline.EventFightScore,
 			JudgeID: c.judgeID,
-			Fighter: f,
+			Fighter: events.Fighter(msg.Fighter),
 			Points:  msg.Points,
 		}, nil
 
-	// 🔥🔥🔥 ВОТ ОН — КЛЮЧЕВОЙ КЕЙС
-	case "FIGHT_WARNING":
-		f := events.Fighter(msg.Fighter)
-		if f != events.FighterRed && f != events.FighterBlue {
+	// ================= PATTERN =================
+
+	case "PATTERN_SELECT_EXERCISE":
+		return discipline.PatternEvent{
+			Type:     discipline.EventPatternSelectExercise,
+			Exercise: msg.Exercise,
+		}, nil
+
+	case "PATTERN_JUDGE_SCORE":
+		if c.judgeID == 0 {
 			return nil, nil
 		}
+		return discipline.PatternEvent{
+			Type:      discipline.EventPatternJudgeScore,
+			JudgeID:   c.judgeID,
+			Criterion: msg.Criterion,
+			Score:     msg.Score,
+		}, nil
 
-		return discipline.FightEvent{
-			Type:    discipline.EventFightWarning,
-			Fighter: f,
+	case "PATTERN_NEXT_STAGE":
+		return discipline.PatternEvent{
+			Type: discipline.EventPatternNextStage,
+		}, nil
+
+	case "PATTERN_FINISH":
+		return discipline.PatternEvent{
+			Type: discipline.EventPatternFinish,
+		}, nil
+
+	case "SWITCH_DISCIPLINE":
+		return SystemEvent{
+			Type: EventSwitchDiscipline,
 		}, nil
 	}
 
